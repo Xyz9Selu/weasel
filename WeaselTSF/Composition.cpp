@@ -550,7 +550,7 @@ void WeaselTSF::_CommitComposition() {
   // composing with a server-side candidate window. Commit whenever Rime is
   // composing, even without a live TSF composition.
   if (!_status.composing && !_IsComposing()) {
-    _cand->Destroy();
+    _cand->EndUI();
     return;
   }
   // The framework may Deactivate (EndSession) before focus-loss
@@ -566,6 +566,8 @@ void WeaselTSF::_CommitComposition() {
       _FinalizeComposition();
     }
     _committed = TRUE;
+    // Thread manager may already be torn down here: EndUI() would no-op,
+    // so Destroy() (now flag-safe) to hide the orphan window.
     _cand->Destroy();
     return;
   }
@@ -587,7 +589,9 @@ void WeaselTSF::_CommitComposition() {
 
   com_ptr<ITfContext> pContext = _pEditSessionContext;
   com_ptr<ITfComposition> pComposition = _pComposition;
-  _cand->Destroy();
+  // Balanced EndUI (pairs with BeginUIElement in StartUI) so the next
+  // composition recreates the window. See CCandidateList::Destroy.
+  _cand->EndUI();
   _committed = TRUE;
   if (pComposition && pContext) {
     com_ptr<CCommitCompositionEditSession> pEditSession;
