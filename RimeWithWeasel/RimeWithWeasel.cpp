@@ -293,7 +293,7 @@ BOOL RimeWithWeaselHandler::ProcessKeyEvent(KeyEvent keyEvent,
 
 void RimeWithWeaselHandler::CommitComposition(WeaselSessionId ipc_id,
                                                EatLine eat) {
-  DLOG(INFO) << "Commit composition: ipc_id = " << ipc_id;
+  LOG(INFO) << "Commit composition: ipc_id = " << ipc_id;
   if (m_disabled)
     return;
   rime_api->commit_composition(to_session_id(ipc_id));

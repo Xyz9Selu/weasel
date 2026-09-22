@@ -442,19 +442,26 @@ class CCommitCompositionEditSession : public CEditSession {
 };
 
 STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec) {
-  if (_pComposition == nullptr)
+  DEBUG << "CCommitCompositionEditSession: text_len=" << _text.length();
+  if (_pComposition == nullptr) {
+    DEBUG << "CCommitCompositionEditSession: null composition, skip";
     return S_OK;
+  }
   // Avoid null pointer dereference
   if (!_pTextService || !_pContext)
     return S_OK;
 
   com_ptr<ITfRange> pRange;
-  if (FAILED(_pComposition->GetRange(&pRange)))
+  if (FAILED(_pComposition->GetRange(&pRange))) {
+    DEBUG << "CCommitCompositionEditSession: GetRange failed";
     return E_FAIL;
+  }
 
   if (!_text.empty()) {
-    if (FAILED(pRange->SetText(ec, 0, _text.c_str(),
-                               static_cast<LONG>(_text.length()))))
+    HRESULT hrText = pRange->SetText(ec, 0, _text.c_str(),
+                                     static_cast<LONG>(_text.length()));
+    DEBUG << "CCommitCompositionEditSession: SetText hr=" << hrText;
+    if (FAILED(hrText))
       return E_FAIL;
   } else {
     // Nothing was committed (e.g. server unreachable): drop any inline
@@ -478,11 +485,14 @@ STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec) {
   // external abort.
   if (_pTextService->_IsCurrentComposition(_pComposition))
     _pTextService->_FinalizeComposition();
+  DEBUG << "CCommitCompositionEditSession: EndComposition";
   _pComposition->EndComposition(ec);
   return S_OK;
 }
 
 void WeaselTSF::_CommitComposition() {
+  DEBUG << "_CommitComposition: composing=" << _IsComposing()
+        << " has_ctx=" << (_pEditSessionContext != nullptr);
   if (!_IsComposing()) {
     _cand->Destroy();
     return;
@@ -494,7 +504,12 @@ void WeaselTSF::_CommitComposition() {
   std::wstring commit;
   weasel::ResponseParser parser(&commit, NULL, &_status, NULL,
                                 &_cand->style());
-  if (!m_client.GetResponseData(std::ref(parser)))
+  bool gotResponse = m_client.GetResponseData(std::ref(parser));
+  DEBUG << "_CommitComposition: response=" << gotResponse
+        << " commit_len=" << commit.length();
+  if (!commit.empty())
+    DEBUG << "_CommitComposition: commit=" << commit;
+  if (!gotResponse)
     commit.clear();
   _UpdateLanguageBar(_status);
 
@@ -513,8 +528,10 @@ void WeaselTSF::_CommitComposition() {
       // a second time. If the app downgrades to async (TF_S_ASYNC), the
       // session still runs later -- no worse than the old behavior.
       HRESULT hrSession = S_OK;
-      pContext->RequestEditSession(_tfClientId, pEditSession,
-                                   TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
+      HRESULT hrReq = pContext->RequestEditSession(
+          _tfClientId, pEditSession, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
+      DEBUG << "_CommitComposition: RequestEditSession req=" << hrReq
+            << " session=" << hrSession;
     }
   }
 }
