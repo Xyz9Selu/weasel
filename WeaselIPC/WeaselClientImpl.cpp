@@ -287,4 +287,3 @@ bool Client::GetResponseData(ResponseHandler handler) {
 bool Client::IsActive() {
   return m_pImpl && m_pImpl->IsActive();
 }
-}
