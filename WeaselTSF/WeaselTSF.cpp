@@ -97,6 +97,11 @@ STDMETHODIMP WeaselTSF::Activate(ITfThreadMgr* pThreadMgr,
 }
 
 STDMETHODIMP WeaselTSF::Deactivate() {
+  // Commit before EndSession: the framework may deliver Deactivate ahead of
+  // focus-loss notifications, and EndSession destroys the server-side Rime
+  // state that a later commit would need.
+  _CommitComposition();
+
   m_client.EndSession();
 
   _InitTextEditSink(com_ptr<ITfDocumentMgr>());
@@ -185,7 +190,7 @@ STDMETHODIMP WeaselTSF::OnSetThreadFocus() {
   return S_OK;
 }
 STDMETHODIMP WeaselTSF::OnKillThreadFocus() {
-  _AbortComposition();
+  _CommitComposition();
   return S_OK;
 }
 BOOL WeaselTSF::_InitThreadFocusSink() {

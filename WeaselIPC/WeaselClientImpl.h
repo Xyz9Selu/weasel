@@ -28,6 +28,9 @@ class ClientImpl {
   void FocusOut();
   void TrayCommand(UINT menuId);
   bool GetResponseData(ResponseHandler const& handler);
+  // Connected to server AND holding a live session id. Note: Echo() alone
+  // cannot prove this (it returns true for session 0 == 0 after EndSession).
+  bool IsActive() const { return _Active(); }
 
  protected:
   void _InitializeClientInfo();

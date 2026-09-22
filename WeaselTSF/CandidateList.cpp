@@ -229,12 +229,18 @@ void CCandidateList::Destroy() {
   // EndUI();
   Show(FALSE);
   _DisposeUIWindow();
+  // EndUI() is skipped here because the thread manager may already be gone.
+  // Still reset the flag, otherwise the next StartUI() early-returns and the
+  // candidate window is never recreated (e.g. after committing on a language
+  // switch, the first composition back shows no window).
+  _uiStarted = false;
 }
 
 void CCandidateList::DestroyAll() {
   // EndUI();
   Show(FALSE);
   _DisposeUIWindowAll();
+  _uiStarted = false;
 }
 UIStyle& CCandidateList::style() {
   // return _ui->style();

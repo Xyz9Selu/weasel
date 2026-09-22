@@ -67,7 +67,7 @@ STDMETHODIMP WeaselTSF::OnSetFocus(BOOL fForeground) {
     m_client.FocusIn();
   else {
     m_client.FocusOut();
-    _AbortComposition();
+    _CommitComposition();
   }
 
   return S_OK;

@@ -67,7 +67,7 @@ struct RequestHandler {
                                EatLine eat) {
     return FALSE;
   }
-  virtual void CommitComposition(DWORD session_id) {}
+  virtual void CommitComposition(DWORD session_id, EatLine eat) {}
   virtual void ClearComposition(DWORD session_id) {}
   virtual void SelectCandidateOnCurrentPage(size_t index, DWORD session_id) {}
   virtual bool HighlightCandidateOnCurrentPage(size_t index,
@@ -146,6 +146,9 @@ class Client {
   void TrayCommand(UINT menuId);
   // 读取server返回的数据
   bool GetResponseData(ResponseHandler handler);
+  // 是否持有有效会话（Deactivate/EndSession 后为 false，
+  // 此时再发 Commit 等请求只会读到陈旧数据）
+  bool IsActive();
 
  private:
   ClientImpl* m_pImpl;

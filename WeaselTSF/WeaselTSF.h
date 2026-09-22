@@ -125,6 +125,9 @@ class WeaselTSF : public ITfTextInputProcessorEx,
   BOOL _UpdateCompositionWindow(com_ptr<ITfContext> pContext);
   void _FinalizeComposition();
   void _AbortComposition(bool clear = true);
+  // Commit in-flight input into the document, then end the TSF composition.
+  // Used on focus loss / language switch so typed text survives the switch.
+  void _CommitComposition();
 
   /* Language bar */
   HWND _GetFocusedContextWindow();

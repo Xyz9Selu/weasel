@@ -45,7 +45,7 @@ class RimeWithWeaselHandler : public weasel::RequestHandler {
   virtual BOOL ProcessKeyEvent(weasel::KeyEvent keyEvent,
                                WeaselSessionId ipc_id,
                                EatLine eat);
-  virtual void CommitComposition(WeaselSessionId ipc_id);
+  virtual void CommitComposition(WeaselSessionId ipc_id, EatLine eat);
   virtual void ClearComposition(WeaselSessionId ipc_id);
   virtual void SelectCandidateOnCurrentPage(size_t index,
                                             WeaselSessionId ipc_id);
@@ -74,7 +74,9 @@ class RimeWithWeaselHandler : public weasel::RequestHandler {
   void _LoadAppInlinePreeditSet(WeaselSessionId ipc_id,
                                 bool ignore_app_name = false);
   bool _ShowMessage(weasel::Context& ctx, weasel::Status& status);
-  bool _Respond(WeaselSessionId ipc_id, EatLine eat);
+  bool _Respond(WeaselSessionId ipc_id,
+                EatLine eat,
+                const std::wstring* explicit_commit = nullptr);
   void _ReadClientInfo(WeaselSessionId ipc_id, LPWSTR buffer);
   void _GetCandidateInfo(weasel::CandidateInfo& cinfo, RimeContext& ctx);
   void _GetStatus(weasel::Status& stat,
