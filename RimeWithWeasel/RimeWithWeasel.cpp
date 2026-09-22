@@ -291,11 +291,17 @@ BOOL RimeWithWeaselHandler::ProcessKeyEvent(KeyEvent keyEvent,
   return (BOOL)handled;
 }
 
-void RimeWithWeaselHandler::CommitComposition(WeaselSessionId ipc_id) {
+void RimeWithWeaselHandler::CommitComposition(WeaselSessionId ipc_id,
+                                               EatLine eat) {
   DLOG(INFO) << "Commit composition: ipc_id = " << ipc_id;
   if (m_disabled)
     return;
   rime_api->commit_composition(to_session_id(ipc_id));
+  // Stream the commit text back through the channel, so that a client
+  // committing on focus loss (e.g. language switch) can insert it into
+  // the document. Mirrors the ProcessKeyEvent respond path.
+  if (eat)
+    _Respond(ipc_id, eat);
   _UpdateUI(ipc_id);
   m_active_session = ipc_id;
 }

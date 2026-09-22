@@ -185,7 +185,7 @@ STDMETHODIMP WeaselTSF::OnSetThreadFocus() {
   return S_OK;
 }
 STDMETHODIMP WeaselTSF::OnKillThreadFocus() {
-  _AbortComposition();
+  _CommitComposition();
   return S_OK;
 }
 BOOL WeaselTSF::_InitThreadFocusSink() {

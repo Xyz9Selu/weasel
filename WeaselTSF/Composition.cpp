@@ -422,6 +422,103 @@ void WeaselTSF::_AbortComposition(bool clear) {
   _cand->Destroy();
 }
 
+/* Commit Composition: insert committed text, then end the composition */
+class CCommitCompositionEditSession : public CEditSession {
+ public:
+  CCommitCompositionEditSession(com_ptr<WeaselTSF> pTextService,
+                                com_ptr<ITfContext> pContext,
+                                com_ptr<ITfComposition> pComposition,
+                                const std::wstring& text)
+      : CEditSession(pTextService, pContext), _text(text) {
+    _pComposition = pComposition;
+  }
+
+  /* ITfEditSession */
+  STDMETHODIMP DoEditSession(TfEditCookie ec);
+
+ private:
+  com_ptr<ITfComposition> _pComposition;
+  std::wstring _text;
+};
+
+STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec) {
+  if (_pComposition == nullptr)
+    return S_OK;
+  // Avoid null pointer dereference
+  if (!_pTextService || !_pContext)
+    return S_OK;
+
+  com_ptr<ITfRange> pRange;
+  if (FAILED(_pComposition->GetRange(&pRange)))
+    return E_FAIL;
+
+  if (!_text.empty()) {
+    if (FAILED(pRange->SetText(ec, 0, _text.c_str(),
+                               static_cast<LONG>(_text.length()))))
+      return E_FAIL;
+  } else {
+    // Nothing was committed (e.g. server unreachable): drop any inline
+    // preedit leftover so no stale text survives the switch.
+    pRange->SetText(ec, 0, L"", 0);
+  }
+
+  /* update the selection to an insertion point just past the inserted text. */
+  pRange->Collapse(ec, TF_ANCHOR_END);
+  TF_SELECTION tfSelection;
+  tfSelection.range = pRange;
+  tfSelection.style.ase = TF_AE_NONE;
+  tfSelection.style.fInterimChar = FALSE;
+  _pContext->SetSelection(ec, 1, &tfSelection);
+
+  _pTextService->_ClearCompositionDisplayAttributes(ec, _pContext);
+
+  // Same ownership handover as CEndCompositionEditSession: drop the local
+  // pointer before EndComposition() so a synchronous
+  // OnCompositionTerminated for this composition is not mistaken for an
+  // external abort.
+  if (_pTextService->_IsCurrentComposition(_pComposition))
+    _pTextService->_FinalizeComposition();
+  _pComposition->EndComposition(ec);
+  return S_OK;
+}
+
+void WeaselTSF::_CommitComposition() {
+  if (!_IsComposing()) {
+    _cand->Destroy();
+    return;
+  }
+  // Commit the Rime-side composition first, so in-flight input is not lost
+  // on language switch / focus loss. The server streams the commit text
+  // back through the IPC channel (see OnCommitComposition).
+  m_client.CommitComposition();
+  std::wstring commit;
+  weasel::ResponseParser parser(&commit, NULL, &_status, NULL,
+                                &_cand->style());
+  if (!m_client.GetResponseData(std::ref(parser)))
+    commit.clear();
+  _UpdateLanguageBar(_status);
+
+  com_ptr<ITfContext> pContext = _pEditSessionContext;
+  com_ptr<ITfComposition> pComposition = _pComposition;
+  _cand->Destroy();
+  _committed = TRUE;
+  if (pContext && pComposition) {
+    com_ptr<CCommitCompositionEditSession> pEditSession;
+    pEditSession.Attach(new CCommitCompositionEditSession(
+        this, pContext, pComposition, commit));
+    if (pEditSession != nullptr) {
+      // Synchronous: the TSF composition must be fully terminated before
+      // this focus-loss notification returns, otherwise the pending
+      // language switch is cancelled and the user has to press the hotkey
+      // a second time. If the app downgrades to async (TF_S_ASYNC), the
+      // session still runs later -- no worse than the old behavior.
+      HRESULT hrSession = S_OK;
+      pContext->RequestEditSession(_tfClientId, pEditSession,
+                                   TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
+    }
+  }
+}
+
 void WeaselTSF::_FinalizeComposition() {
   _pComposition = nullptr;
 }

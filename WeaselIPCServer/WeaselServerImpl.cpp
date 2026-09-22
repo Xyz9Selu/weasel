@@ -324,8 +324,13 @@ DWORD ServerImpl::OnEndMaintenance(WEASEL_IPC_COMMAND uMsg,
 DWORD ServerImpl::OnCommitComposition(WEASEL_IPC_COMMAND uMsg,
                                       DWORD wParam,
                                       DWORD lParam) {
-  if (m_pRequestHandler)
-    m_pRequestHandler->CommitComposition(lParam);
+  if (!m_pRequestHandler)
+    return 0;
+  auto eat = [this](std::wstring& msg) -> bool {
+    *channel << msg;
+    return true;
+  };
+  m_pRequestHandler->CommitComposition(lParam, eat);
   return 0;
 }
 
