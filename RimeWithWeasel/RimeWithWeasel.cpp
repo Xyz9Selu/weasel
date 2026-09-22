@@ -306,15 +306,9 @@ void RimeWithWeaselHandler::CommitComposition(WeaselSessionId ipc_id,
   // get_input becomes invalid upon editing: copy first, then discard.
   rime_api->clear_composition(session_id);
   if (eat) {
-    // Raw line first: Committer overwrites, and _Respond below emits no
-    // commit line (get_commit reads are consuming), so this one wins.
-    if (!raw_input.empty()) {
-      std::wstring line(L"commit=");
-      line.append(escape_string(u8tow(raw_input))).append(L"\n");
-      eat(line);
-    }
+    std::wstring raw_w = u8tow(raw_input);
     // Fresh status (composing=false) so clients don't act on stale state.
-    _Respond(ipc_id, eat);
+    _Respond(ipc_id, eat, raw_w.empty() ? nullptr : &raw_w);
   }
   _UpdateUI(ipc_id);
   m_active_session = ipc_id;
@@ -758,7 +752,9 @@ inline std::string _GetLabelText(const std::vector<Text>& labels,
   return wtou8(std::wstring(buffer));
 }
 
-bool RimeWithWeaselHandler::_Respond(WeaselSessionId ipc_id, EatLine eat) {
+bool RimeWithWeaselHandler::_Respond(WeaselSessionId ipc_id,
+                                      EatLine eat,
+                                      const std::wstring* explicit_commit) {
   std::wstring body;
   body.reserve(4096);
   std::vector<const char*> actions;
@@ -772,6 +768,14 @@ bool RimeWithWeaselHandler::_Respond(WeaselSessionId ipc_id, EatLine eat) {
     std::wstring commit_text_w = escape_string(u8tow(commit.text));
     body.append(L"commit=").append(commit_text_w).append(L"\n");
     rime_api->free_commit(&commit);
+  } else if (explicit_commit && !explicit_commit->empty()) {
+    // The commit line must travel inside _Respond: the parser only loads
+    // the Committer after seeing the action= header, so a commit line
+    // written before it would be silently ignored.
+    actions.push_back("commit");
+    body.append(L"commit=")
+        .append(escape_string(*explicit_commit))
+        .append(L"\n");
   }
 
   bool is_composing = false;
