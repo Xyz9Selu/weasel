@@ -13,9 +13,6 @@ STDMETHODIMP WeaselTSF::DoEditSession(TfEditCookie ec) {
 
   bool ok = m_client.GetResponseData(std::ref(parser));
 
-  DEBUG << "DoEditSession: ok=" << ok << " commit_len=" << commit.length()
-        << " composing=" << _status.composing
-        << " tsf_composing=" << _IsComposing();
   _UpdateLanguageBar(_status);
 
   bool compositionEnded = false;
