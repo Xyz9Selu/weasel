@@ -296,12 +296,25 @@ void RimeWithWeaselHandler::CommitComposition(WeaselSessionId ipc_id,
   LOG(INFO) << "Commit composition: ipc_id = " << ipc_id;
   if (m_disabled)
     return;
-  rime_api->commit_composition(to_session_id(ipc_id));
-  // Stream the commit text back through the channel, so that a client
-  // committing on focus loss (e.g. language switch) can insert it into
-  // the document. Mirrors the ProcessKeyEvent respond path.
-  if (eat)
+  RimeSessionId session_id = to_session_id(ipc_id);
+  // Commit the RAW keystrokes instead of the conversion: this entry point
+  // is used on focus loss / language switch, where the user is leaving for
+  // a Latin keyboard and wants to keep exactly what they typed.
+  const char* raw = rime_api->get_input(session_id);
+  std::string raw_input = raw ? raw : "";
+  // get_input becomes invalid upon editing: copy first, then discard.
+  rime_api->clear_composition(session_id);
+  if (eat) {
+    // Raw line first: Committer overwrites, and _Respond below emits no
+    // commit line (get_commit reads are consuming), so this one wins.
+    if (!raw_input.empty()) {
+      std::wstring line(L"commit=");
+      line.append(escape_string(u8tow(raw_input))).append(L"\n");
+      eat(line);
+    }
+    // Fresh status (composing=false) so clients don't act on stale state.
     _Respond(ipc_id, eat);
+  }
   _UpdateUI(ipc_id);
   m_active_session = ipc_id;
 }
