@@ -128,6 +128,20 @@ class WeaselTSF : public ITfTextInputProcessorEx,
   // Commit in-flight input into the document, then end the TSF composition.
   // Used on focus loss / language switch so typed text survives the switch.
   void _CommitComposition();
+  // Replace-selection: when a composition starts over a non-empty document
+  // selection, the covered text is tracked so cancel/clear paths can put it
+  // back instead of eating the user's selection. Returns FALSE when there is
+  // nothing to track (empty selection), in which case the caller keeps the
+  // old collapse-to-caret behavior.
+  BOOL _TrackSelectionReplace(com_ptr<ITfContext> pContext, TfEditCookie ec,
+                              ITfRange* pRange,
+                              ITfComposition* pComposition);
+  // Puts the tracked text back (or leaves it alone when untouched).
+  // Returns FALSE when there is nothing tracked for this composition,
+  // in which case the caller falls back to clearing the range.
+  BOOL _RestoreSelectionReplace(TfEditCookie ec,
+                                ITfComposition* pComposition, ITfRange* pRange);
+  void _UntrackSelectionReplace(ITfComposition* pComposition);
 
   /* Language bar */
   HWND _GetFocusedContextWindow();
@@ -217,6 +231,11 @@ class WeaselTSF : public ITfTextInputProcessorEx,
   com_ptr<CCompartmentEventSink> _pConvertionCompartmentSink;
 
   com_ptr<ITfComposition> _pComposition;
+
+  /* Replace-selection tracking (see _TrackSelectionReplace) */
+  com_ptr<ITfComposition> _pReplaceComposition;
+  std::wstring _replaceText;
+  BOOL _replaceSaved;
 
   com_ptr<CLangBarItemButton> _pLangBarButton;
 

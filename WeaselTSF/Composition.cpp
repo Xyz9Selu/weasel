@@ -37,18 +37,36 @@ STDMETHODIMP CStartCompositionEditSession::DoEditSession(TfEditCookie ec) {
   if (_pContext->QueryInterface(IID_ITfContextComposition,
                                 (LPVOID*)&pContextComposition) != S_OK)
     return hr;
-  if ((pContextComposition->StartComposition(
-           ec, pRangeComposition, _pTextService, &pComposition) == S_OK) &&
-      (pComposition != NULL)) {
+  HRESULT hrStart = pContextComposition->StartComposition(
+      ec, pRangeComposition, _pTextService, &pComposition);
+  if (FAILED(hrStart) || pComposition == NULL) {
+    // Some hosts reject a composition over a non-empty range: fall back to
+    // the old behavior (collapse to insertion point, then start).
+    TF_SELECTION tfSelectionFallback;
+    pRangeComposition->Collapse(ec, TF_ANCHOR_END);
+    tfSelectionFallback.range = pRangeComposition;
+    tfSelectionFallback.style.ase = TF_AE_NONE;
+    tfSelectionFallback.style.fInterimChar = FALSE;
+    _pContext->SetSelection(ec, 1, &tfSelectionFallback);
+    hrStart = pContextComposition->StartComposition(ec, pRangeComposition,
+                                                   _pTextService, &pComposition);
+  }
+  if (SUCCEEDED(hrStart) && (pComposition != NULL)) {
     _pTextService->_SetComposition(pComposition);
 
-    /* set selection */
-    TF_SELECTION tfSelection;
-    pRangeComposition->Collapse(ec, TF_ANCHOR_END);
-    tfSelection.range = pRangeComposition;
-    tfSelection.style.ase = TF_AE_NONE;
-    tfSelection.style.fInterimChar = FALSE;
-    _pContext->SetSelection(ec, 1, &tfSelection);
+    if (!_pTextService->_TrackSelectionReplace(_pContext, ec, pRangeComposition,
+                                               pComposition)) {
+      /* empty selection: collapse to an insertion point (old behavior) */
+      TF_SELECTION tfSelection;
+      pRangeComposition->Collapse(ec, TF_ANCHOR_END);
+      tfSelection.range = pRangeComposition;
+      tfSelection.style.ase = TF_AE_NONE;
+      tfSelection.style.fInterimChar = FALSE;
+      _pContext->SetSelection(ec, 1, &tfSelection);
+    }
+    // else: composition covers the document selection, which stays selected.
+    // Committing writes into the range (replacing it); cancelling puts the
+    // tracked text back. No caret juggling needed.
 
     // The old composition's range is still visible while its asynchronous
     // end session is pending. Position only after the new composition has
@@ -57,6 +75,88 @@ STDMETHODIMP CStartCompositionEditSession::DoEditSession(TfEditCookie ec) {
   }
 
   return hr;
+}
+
+/* Replace-selection tracking */
+namespace {
+// Bounded so a huge selection falls back to the old collapse behavior
+// instead of allocating blindly.
+const ULONG kMaxReplaceChars = 4096;
+}  // namespace
+
+BOOL WeaselTSF::_TrackSelectionReplace(com_ptr<ITfContext> pContext,
+                                       TfEditCookie ec, ITfRange* pRange,
+                                       ITfComposition* pComposition) {
+  _UntrackSelectionReplace(nullptr);
+  TF_SELECTION sel;
+  ULONG fetched = 0;
+  if (FAILED(pContext->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel,
+                                    &fetched)) ||
+      fetched != 1) {
+    return FALSE;
+  }
+  com_ptr<ITfRange> pSelection;
+  pSelection.Attach(sel.range);
+  LONG cmp = 0;
+  // Empty selection: nothing to replace, keep the old collapse behavior.
+  if (FAILED(pSelection->CompareStart(ec, pSelection, TF_ANCHOR_END, &cmp)) ||
+      cmp == 0) {
+    return FALSE;
+  }
+  // The composition range must be exactly the selection; otherwise fall back
+  // to collapsing rather than covering the wrong text.
+  if (FAILED(pRange->CompareStart(ec, pSelection, TF_ANCHOR_START, &cmp)) ||
+      cmp != 0 ||
+      FAILED(pRange->CompareEnd(ec, pSelection, TF_ANCHOR_END, &cmp)) ||
+      cmp != 0) {
+    return FALSE;
+  }
+  wchar_t buffer[kMaxReplaceChars];
+  ULONG cch = 0;
+  if (FAILED(pRange->GetText(ec, 0, buffer, kMaxReplaceChars - 1, &cch)) ||
+      cch >= kMaxReplaceChars - 1) {
+    return FALSE;
+  }
+  _replaceText.assign(buffer, cch);
+  _pReplaceComposition = pComposition;
+  _replaceSaved = TRUE;
+  return TRUE;
+}
+
+BOOL WeaselTSF::_RestoreSelectionReplace(TfEditCookie ec,
+                                         ITfComposition* pComposition,
+                                         ITfRange* pRange) {
+  if (!_replaceSaved || _pReplaceComposition == nullptr ||
+      _pReplaceComposition != pComposition) {
+    return FALSE;
+  }
+  wchar_t buffer[kMaxReplaceChars];
+  ULONG cch = 0;
+  if (SUCCEEDED(pRange->GetText(ec, 0, buffer, kMaxReplaceChars - 1, &cch)) &&
+      cch == _replaceText.length() &&
+      _replaceText.compare(0, cch, buffer, cch) == 0) {
+    // Untouched (e.g. cancelled before anything was written): leave it,
+    // skipping the clear that would otherwise delete the selection.
+    return TRUE;
+  }
+  // Cleared already, or inline preedit replaced it live: put it back.
+  // (If the host edited inside our range meanwhile, restoring the
+  // selection is still preferable to deleting whatever is there.)
+  pRange->SetText(ec, 0, _replaceText.c_str(),
+                  static_cast<LONG>(_replaceText.length()));
+  return TRUE;
+}
+
+void WeaselTSF::_UntrackSelectionReplace(ITfComposition* pComposition) {
+  if (pComposition != nullptr) {
+    if (!_replaceSaved || _pReplaceComposition == nullptr ||
+        _pReplaceComposition != pComposition) {
+      return;
+    }
+  }
+  _replaceSaved = FALSE;
+  _replaceText.clear();
+  _pReplaceComposition = nullptr;
 }
 
 void WeaselTSF::_StartComposition(com_ptr<ITfContext> pContext,
@@ -103,8 +203,16 @@ STDMETHODIMP CEndCompositionEditSession::DoEditSession(TfEditCookie ec) {
   _pTextService->_ClearCompositionDisplayAttributes(ec, _pContext);
 
   com_ptr<ITfRange> pCompositionRange;
-  if (_clear && _pComposition->GetRange(&pCompositionRange) == S_OK)
-    pCompositionRange->SetText(ec, 0, L"", 0);
+  if (_clear && _pComposition->GetRange(&pCompositionRange) == S_OK) {
+    // A composition may cover a document selection (replace-selection):
+    // put the tracked text back instead of eating it. Falls back to
+    // clearing when nothing is tracked for this composition.
+    if (!_pTextService->_RestoreSelectionReplace(ec, _pComposition,
+                                                 pCompositionRange))
+      pCompositionRange->SetText(ec, 0, L"", 0);
+  }
+  // The composition is ending either way: drop replace-selection tracking.
+  _pTextService->_UntrackSelectionReplace(_pComposition);
 
   // Drop ownership before EndComposition(). Some applications notify
   // OnCompositionTerminated synchronously while the old composition ends.
@@ -491,6 +599,9 @@ STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec) {
     _pTextService->_FinalizeComposition();
   DEBUG << "CCommitCompositionEditSession: EndComposition";
   _pComposition->EndComposition(ec);
+  // The committed text already replaced the range content (including a
+  // covered selection): just drop replace-selection tracking.
+  _pTextService->_UntrackSelectionReplace(_pComposition);
   return S_OK;
 }
 

@@ -32,6 +32,8 @@ WeaselTSF::WeaselTSF() {
 
   _fCUASWorkaroundTested = _fCUASWorkaroundEnabled = FALSE;
 
+  _replaceSaved = FALSE;
+
   _cand = new CCandidateList(this);
 
   DllAddRef();
