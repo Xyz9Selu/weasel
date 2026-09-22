@@ -60,7 +60,8 @@ STDMETHODIMP CStartCompositionEditSession::DoEditSession(TfEditCookie ec) {
 }
 
 void WeaselTSF::_StartComposition(com_ptr<ITfContext> pContext,
-                                  BOOL fCUASWorkaroundEnabled) {
+                                   BOOL fCUASWorkaroundEnabled) {
+  DEBUG << "_StartComposition";
   com_ptr<CStartCompositionEditSession> pStartCompositionEditSession;
   pStartCompositionEditSession.Attach(
       new CStartCompositionEditSession(this, pContext, fCUASWorkaroundEnabled));
@@ -391,7 +392,10 @@ void WeaselTSF::_UpdateComposition(com_ptr<ITfContext> pContext) {
 
 /* Composition State */
 STDMETHODIMP WeaselTSF::OnCompositionTerminated(TfEditCookie ecWrite,
-                                                ITfComposition* pComposition) {
+                                                 ITfComposition* pComposition) {
+  DEBUG << "OnCompositionTerminated: current="
+        << _IsCurrentComposition(pComposition)
+        << " rime_composing=" << _status.composing;
   // NOTE:
   // This will be called when an edit session ended up with an empty composition
   // string, Even if it is closed normally. Silly M$.
@@ -490,10 +494,61 @@ STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec) {
   return S_OK;
 }
 
+/* Insert commit text at caret when no TSF composition exists */
+class CCommitTextEditSession : public CEditSession {
+ public:
+  CCommitTextEditSession(com_ptr<WeaselTSF> pTextService,
+                         com_ptr<ITfContext> pContext,
+                         const std::wstring& text)
+      : CEditSession(pTextService, pContext), _text(text) {}
+
+  /* ITfEditSession */
+  STDMETHODIMP DoEditSession(TfEditCookie ec);
+
+ private:
+  std::wstring _text;
+};
+
+STDMETHODIMP CCommitTextEditSession::DoEditSession(TfEditCookie ec) {
+  DEBUG << "CCommitTextEditSession: text_len=" << _text.length();
+  if (!_pTextService || !_pContext)
+    return S_OK;
+  if (_text.empty())
+    return S_OK;
+
+  com_ptr<ITfInsertAtSelection> pInsertAtSelection;
+  if (FAILED(_pContext->QueryInterface(
+          IID_ITfInsertAtSelection, (LPVOID*)&pInsertAtSelection)) ||
+      pInsertAtSelection == nullptr) {
+    DEBUG << "CCommitTextEditSession: no InsertAtSelection";
+    return E_FAIL;
+  }
+  com_ptr<ITfRange> pRange;
+  HRESULT hrIns = pInsertAtSelection->InsertTextAtSelection(
+      ec, 0, _text.c_str(), static_cast<LONG>(_text.length()), &pRange);
+  DEBUG << "CCommitTextEditSession: insert hr=" << hrIns;
+  if (FAILED(hrIns))
+    return hrIns;
+  if (pRange != nullptr) {
+    pRange->Collapse(ec, TF_ANCHOR_END);
+    TF_SELECTION tfSelection;
+    tfSelection.range = pRange;
+    tfSelection.style.ase = TF_AE_NONE;
+    tfSelection.style.fInterimChar = FALSE;
+    _pContext->SetSelection(ec, 1, &tfSelection);
+  }
+  return S_OK;
+}
+
 void WeaselTSF::_CommitComposition() {
-  DEBUG << "_CommitComposition: composing=" << _IsComposing()
+  DEBUG << "_CommitComposition: tsf_composing=" << _IsComposing()
+        << " rime_composing=" << _status.composing
         << " has_ctx=" << (_pEditSessionContext != nullptr);
-  if (!_IsComposing()) {
+  // NOTE: the TSF composition and the Rime composition can diverge: the host
+  // may terminate our (empty, non-inline) TSF composition while Rime keeps
+  // composing with a server-side candidate window. Commit whenever Rime is
+  // composing, even without a live TSF composition.
+  if (!_status.composing && !_IsComposing()) {
     _cand->Destroy();
     return;
   }
@@ -517,7 +572,7 @@ void WeaselTSF::_CommitComposition() {
   com_ptr<ITfComposition> pComposition = _pComposition;
   _cand->Destroy();
   _committed = TRUE;
-  if (pContext && pComposition) {
+  if (pComposition && pContext) {
     com_ptr<CCommitCompositionEditSession> pEditSession;
     pEditSession.Attach(new CCommitCompositionEditSession(
         this, pContext, pComposition, commit));
@@ -533,6 +588,20 @@ void WeaselTSF::_CommitComposition() {
       DEBUG << "_CommitComposition: RequestEditSession req=" << hrReq
             << " session=" << hrSession;
     }
+  } else if (!commit.empty() && pContext) {
+    // Rime was composing without a live TSF composition (host-terminated):
+    // insert the committed text at the caret, no composition to end.
+    com_ptr<CCommitTextEditSession> pEditSession;
+    pEditSession.Attach(new CCommitTextEditSession(this, pContext, commit));
+    if (pEditSession != nullptr) {
+      HRESULT hrSession = S_OK;
+      HRESULT hrReq = pContext->RequestEditSession(
+          _tfClientId, pEditSession, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
+      DEBUG << "_CommitComposition: insert-only req=" << hrReq
+            << " session=" << hrSession;
+    }
+  } else {
+    DEBUG << "_CommitComposition: nothing to insert, UI destroyed";
   }
 }
 
