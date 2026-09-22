@@ -543,7 +543,8 @@ STDMETHODIMP CCommitTextEditSession::DoEditSession(TfEditCookie ec) {
 void WeaselTSF::_CommitComposition() {
   DEBUG << "_CommitComposition: tsf_composing=" << _IsComposing()
         << " rime_composing=" << _status.composing
-        << " has_ctx=" << (_pEditSessionContext != nullptr);
+        << " has_ctx=" << (_pEditSessionContext != nullptr)
+        << " tsf_build=" __DATE__ " " __TIME__;
   // NOTE: the TSF composition and the Rime composition can diverge: the host
   // may terminate our (empty, non-inline) TSF composition while Rime keeps
   // composing with a server-side candidate window. Commit whenever Rime is
