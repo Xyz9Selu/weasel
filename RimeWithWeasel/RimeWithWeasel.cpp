@@ -302,6 +302,7 @@ void RimeWithWeaselHandler::CommitComposition(WeaselSessionId ipc_id,
   // a Latin keyboard and wants to keep exactly what they typed.
   const char* raw = rime_api->get_input(session_id);
   std::string raw_input = raw ? raw : "";
+  DEBUG << "ServerCommit: handler raw_len=" << raw_input.length();
   // get_input becomes invalid upon editing: copy first, then discard.
   rime_api->clear_composition(session_id);
   if (eat) {

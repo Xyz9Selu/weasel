@@ -324,6 +324,7 @@ DWORD ServerImpl::OnEndMaintenance(WEASEL_IPC_COMMAND uMsg,
 DWORD ServerImpl::OnCommitComposition(WEASEL_IPC_COMMAND uMsg,
                                       DWORD wParam,
                                       DWORD lParam) {
+  DEBUG << "ServerCommit: dispatch session=" << lParam;
   if (!m_pRequestHandler)
     return 0;
   auto eat = [this](std::wstring& msg) -> bool {
