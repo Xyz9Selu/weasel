@@ -283,3 +283,8 @@ bool Client::Echo() {
 bool Client::GetResponseData(ResponseHandler handler) {
   return m_pImpl->GetResponseData(handler);
 }
+
+bool Client::IsActive() {
+  return m_pImpl && m_pImpl->IsActive();
+}
+}

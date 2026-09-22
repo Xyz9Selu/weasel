@@ -552,6 +552,22 @@ void WeaselTSF::_CommitComposition() {
     _cand->Destroy();
     return;
   }
+  // The framework may Deactivate (EndSession) before focus-loss
+  // notifications arrive. With a dead session the server has already
+  // destroyed the Rime state: sending Commit would read stale pipe data,
+  // so only clean up local state here. Deactivate() commits first while
+  // the session is still alive, covering that order.
+  if (!m_client.IsActive()) {
+    DEBUG << "_CommitComposition: session dead, local cleanup only";
+    if (_IsComposing()) {
+      if (_pEditSessionContext)
+        _EndComposition(_pEditSessionContext, true);
+      _FinalizeComposition();
+    }
+    _committed = TRUE;
+    _cand->Destroy();
+    return;
+  }
   // Commit the Rime-side composition first, so in-flight input is not lost
   // on language switch / focus loss. The server streams the commit text
   // back through the IPC channel (see OnCommitComposition).

@@ -146,6 +146,9 @@ class Client {
   void TrayCommand(UINT menuId);
   // 读取server返回的数据
   bool GetResponseData(ResponseHandler handler);
+  // 是否持有有效会话（Deactivate/EndSession 后为 false，
+  // 此时再发 Commit 等请求只会读到陈旧数据）
+  bool IsActive();
 
  private:
   ClientImpl* m_pImpl;
