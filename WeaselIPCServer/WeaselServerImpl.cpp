@@ -324,8 +324,6 @@ DWORD ServerImpl::OnEndMaintenance(WEASEL_IPC_COMMAND uMsg,
 DWORD ServerImpl::OnCommitComposition(WEASEL_IPC_COMMAND uMsg,
                                       DWORD wParam,
                                       DWORD lParam) {
-  DEBUG << "ServerCommit: dispatch session=" << lParam
-        << " server_build=" __DATE__ " " __TIME__;
   if (!m_pRequestHandler)
     return 0;
   auto eat = [this](std::wstring& msg) -> bool {
@@ -433,7 +431,7 @@ void PipeServer::Listen(ServerHandler const& handler) {
       pipe = _ConnectServerPipe(pname);
       boost::thread th(
           [&handler, pipe, this] { _ProcessPipeThread(pipe, handler); });
-    } catch (DWORD ex) {
+    } catch (DWORD) {
       _FinalizePipe(pipe);
     }
     boost::this_thread::interruption_point();

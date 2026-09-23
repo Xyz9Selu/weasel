@@ -161,7 +161,6 @@ void WeaselTSF::_UntrackSelectionReplace(ITfComposition* pComposition) {
 
 void WeaselTSF::_StartComposition(com_ptr<ITfContext> pContext,
                                    BOOL fCUASWorkaroundEnabled) {
-  DEBUG << "_StartComposition";
   com_ptr<CStartCompositionEditSession> pStartCompositionEditSession;
   pStartCompositionEditSession.Attach(
       new CStartCompositionEditSession(this, pContext, fCUASWorkaroundEnabled));
@@ -501,9 +500,6 @@ void WeaselTSF::_UpdateComposition(com_ptr<ITfContext> pContext) {
 /* Composition State */
 STDMETHODIMP WeaselTSF::OnCompositionTerminated(TfEditCookie ecWrite,
                                                  ITfComposition* pComposition) {
-  DEBUG << "OnCompositionTerminated: current="
-        << _IsCurrentComposition(pComposition)
-        << " rime_composing=" << _status.composing;
   // NOTE:
   // This will be called when an edit session ended up with an empty composition
   // string, Even if it is closed normally. Silly M$.
@@ -554,9 +550,7 @@ class CCommitCompositionEditSession : public CEditSession {
 };
 
 STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec) {
-  DEBUG << "CCommitCompositionEditSession: text_len=" << _text.length();
   if (_pComposition == nullptr) {
-    DEBUG << "CCommitCompositionEditSession: null composition, skip";
     return S_OK;
   }
   // Avoid null pointer dereference
@@ -565,15 +559,12 @@ STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec) {
 
   com_ptr<ITfRange> pRange;
   if (FAILED(_pComposition->GetRange(&pRange))) {
-    DEBUG << "CCommitCompositionEditSession: GetRange failed";
     return E_FAIL;
   }
 
   if (!_text.empty()) {
-    HRESULT hrText = pRange->SetText(ec, 0, _text.c_str(),
-                                     static_cast<LONG>(_text.length()));
-    DEBUG << "CCommitCompositionEditSession: SetText hr=" << hrText;
-    if (FAILED(hrText))
+    if (FAILED(pRange->SetText(ec, 0, _text.c_str(),
+                                    static_cast<LONG>(_text.length()))))
       return E_FAIL;
   } else {
     // Nothing was committed (e.g. server unreachable): drop any inline
@@ -597,7 +588,6 @@ STDMETHODIMP CCommitCompositionEditSession::DoEditSession(TfEditCookie ec) {
   // external abort.
   if (_pTextService->_IsCurrentComposition(_pComposition))
     _pTextService->_FinalizeComposition();
-  DEBUG << "CCommitCompositionEditSession: EndComposition";
   _pComposition->EndComposition(ec);
   // The committed text already replaced the range content (including a
   // covered selection): just drop replace-selection tracking.
@@ -621,7 +611,6 @@ class CCommitTextEditSession : public CEditSession {
 };
 
 STDMETHODIMP CCommitTextEditSession::DoEditSession(TfEditCookie ec) {
-  DEBUG << "CCommitTextEditSession: text_len=" << _text.length();
   if (!_pTextService || !_pContext)
     return S_OK;
   if (_text.empty())
@@ -631,13 +620,11 @@ STDMETHODIMP CCommitTextEditSession::DoEditSession(TfEditCookie ec) {
   if (FAILED(_pContext->QueryInterface(
           IID_ITfInsertAtSelection, (LPVOID*)&pInsertAtSelection)) ||
       pInsertAtSelection == nullptr) {
-    DEBUG << "CCommitTextEditSession: no InsertAtSelection";
     return E_FAIL;
   }
   com_ptr<ITfRange> pRange;
   HRESULT hrIns = pInsertAtSelection->InsertTextAtSelection(
       ec, 0, _text.c_str(), static_cast<LONG>(_text.length()), &pRange);
-  DEBUG << "CCommitTextEditSession: insert hr=" << hrIns;
   if (FAILED(hrIns))
     return hrIns;
   if (pRange != nullptr) {
@@ -654,8 +641,7 @@ STDMETHODIMP CCommitTextEditSession::DoEditSession(TfEditCookie ec) {
 void WeaselTSF::_CommitComposition() {
   DEBUG << "_CommitComposition: tsf_composing=" << _IsComposing()
         << " rime_composing=" << _status.composing
-        << " has_ctx=" << (_pEditSessionContext != nullptr)
-        << " tsf_build=" __DATE__ " " __TIME__;
+        << " has_ctx=" << (_pEditSessionContext != nullptr);
   // NOTE: the TSF composition and the Rime composition can diverge: the host
   // may terminate our (empty, non-inline) TSF composition while Rime keeps
   // composing with a server-side candidate window. Commit whenever Rime is
@@ -690,10 +676,6 @@ void WeaselTSF::_CommitComposition() {
   weasel::ResponseParser parser(&commit, NULL, &_status, NULL,
                                 &_cand->style());
   bool gotResponse = m_client.GetResponseData(std::ref(parser));
-  DEBUG << "_CommitComposition: response=" << gotResponse
-        << " commit_len=" << commit.length();
-  if (!commit.empty())
-    DEBUG << "_CommitComposition: commit=" << commit;
   if (!gotResponse)
     commit.clear();
   _UpdateLanguageBar(_status);
@@ -719,8 +701,6 @@ void WeaselTSF::_CommitComposition() {
       HRESULT hrSession = S_OK;
       HRESULT hrReq = pContext->RequestEditSession(
           _tfClientId, pEditSession, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
-      DEBUG << "_CommitComposition: RequestEditSession req=" << hrReq
-            << " session=" << hrSession;
     }
   } else if (!commit.empty() && pContext) {
     // Rime was composing without a live TSF composition (host-terminated):
@@ -731,11 +711,7 @@ void WeaselTSF::_CommitComposition() {
       HRESULT hrSession = S_OK;
       HRESULT hrReq = pContext->RequestEditSession(
           _tfClientId, pEditSession, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
-      DEBUG << "_CommitComposition: insert-only req=" << hrReq
-            << " session=" << hrSession;
     }
-  } else {
-    DEBUG << "_CommitComposition: nothing to insert, UI destroyed";
   }
 }
 
